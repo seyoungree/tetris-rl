@@ -376,43 +376,6 @@ class TetrisGame:
 			bumpiness += abs(heights[i] - heights[i + 1])
 		return bumpiness
 	
-	def step(self, action):
-		"""
-		Execute action and return (observation, reward, done, info)
-		Actions: 0=left, 1=right, 2=rotate, 3=drop, 4=hard_drop
-		"""
-		if self.game_over:
-			return self.get_observation(), 0, True, {}
-		
-		reward = 0
-		
-		if action == 0:  # Move left
-			self.move_piece(-1)
-		elif action == 1:  # Move right
-			self.move_piece(1)
-		elif action == 2:  # Rotate
-			self.rotate_piece()
-		elif action == 3:  # Soft drop
-			if not self.drop_piece():
-				reward += 10  # Small reward for locking piece
-		elif action == 4:  # Hard drop
-			self.hard_drop()
-			reward += 10
-		
-		# Penalty for height and holes (encourages keeping board clean)
-		reward -= self.get_board_height() * 0.5
-		reward -= self.get_holes() * 2
-		
-		info = {
-			'score': self.score,
-			'lines_cleared': self.lines_cleared,
-			'height': self.get_board_height(),
-			'holes': self.get_holes(),
-			'bumpiness': self.get_bumpiness()
-		}
-		
-		return self.get_observation(), reward, self.game_over, info
-	
 	def close(self):
 		"""Clean up pygame"""
 		if self.render_mode is not None:
@@ -421,9 +384,6 @@ class TetrisGame:
 	def play_manual(self):
 		clock = pygame.time.Clock()
 		running = True
-
-		GRAVITY_FPS = 2
-		GRAVITY_INTERVAL = 1000 // GRAVITY_FPS
 		last_gravity_time = pygame.time.get_ticks()
 
 		while running:
@@ -445,7 +405,7 @@ class TetrisGame:
 						self.hard_drop()
 
 			now = pygame.time.get_ticks()
-			if not self.game_over and now - last_gravity_time >= GRAVITY_INTERVAL:
+			if not self.game_over and now - last_gravity_time >= self.gravity_interval:
 				self.drop_piece()
 				last_gravity_time = now
 
