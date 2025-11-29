@@ -1,6 +1,6 @@
 import numpy as np
 import pygame
-from copy import deepcopy
+from copy import deepcopy  # currently unused, but kept if you extend later
 
 # Tetromino shapes
 SHAPES = {
@@ -28,7 +28,9 @@ COLORS = {
 
 
 class TetrisGame:
-	def __init__(self, width=10, height=20, block_size=20, render_mode='rgb_array', gravity_fps=2, render_fps=30, queue_size=5):
+	def __init__(self, width=10, height=20, block_size=20,
+	             render_mode='rgb_array', gravity_fps=2,
+	             render_fps=30, queue_size=5):
 		self.width = width
 		self.height = height
 		self.block_size = block_size
@@ -45,9 +47,11 @@ class TetrisGame:
 		self.screen_width = width * block_size + self.sidebar_width
 		self.screen_height = height * block_size + self.hud_height
 
+		# Piece queue
 		self.queue_size = queue_size
-		self.piece_queue = []                
+		self.piece_queue = []
 
+		# Game state
 		self.board = np.zeros((height, width), dtype=int)
 		self.current_piece = None
 		self.current_shape = None
@@ -66,20 +70,20 @@ class TetrisGame:
 			else:
 				self.screen = pygame.Surface((self.screen_width, self.screen_height))
 
-		
 	def reset(self):
-		"""Reset the game state"""
+		"""Reset the game state."""
 		self.board = np.zeros((self.height, self.width), dtype=int)
 		self.game_over = False
 		self.score = 0
 		self.lines_cleared = 0
+
+		# Reset upcoming piece queue
 		self.piece_queue = [np.random.choice(SHAPE_NAMES) for _ in range(self.queue_size)]
 		self.spawn_piece()
 		return self.get_observation()
-	
 
 	def spawn_piece(self):
-		"""Spawn a new piece from the queue and refill queue"""
+		"""Spawn a new piece from the queue and refill queue."""
 		# Ensure queue exists
 		if not hasattr(self, "piece_queue") or len(self.piece_queue) == 0:
 			self.piece_queue = [np.random.choice(SHAPE_NAMES) for _ in range(self.queue_size)]
@@ -92,50 +96,49 @@ class TetrisGame:
 		self.current_shape = np.array(SHAPES[self.current_shape_name])
 		self.current_pos = [0, self.width // 2 - len(self.current_shape[0]) // 2]
 
-		# Check if spawn position is valid
+		# Check if spawn position is valid (game over if not)
 		if not self.is_valid_position(self.current_shape, self.current_pos):
 			self.game_over = True
 
-	
 	def is_valid_position(self, shape, pos):
-		"""Check if piece position is valid"""
+		"""Check if piece position is valid."""
 		for y in range(len(shape)):
 			for x in range(len(shape[0])):
 				if shape[y][x]:
 					board_y = pos[0] + y
 					board_x = pos[1] + x
-					
+
 					# Check boundaries
 					if board_x < 0 or board_x >= self.width or board_y >= self.height:
 						return False
-					
+
 					# Check collision with existing pieces
 					if board_y >= 0 and self.board[board_y][board_x]:
 						return False
 		return True
-	
+
 	def rotate_piece(self, clockwise=True):
-		"""Rotate current piece"""
+		"""Rotate current piece."""
 		if clockwise:
 			rotated = np.rot90(self.current_shape, k=-1)
 		else:
 			rotated = np.rot90(self.current_shape, k=1)
-		
+
 		if self.is_valid_position(rotated, self.current_pos):
 			self.current_shape = rotated
 			return True
 		return False
-	
+
 	def move_piece(self, dx):
-		"""Move piece horizontally"""
+		"""Move piece horizontally."""
 		new_pos = [self.current_pos[0], self.current_pos[1] + dx]
 		if self.is_valid_position(self.current_shape, new_pos):
 			self.current_pos = new_pos
 			return True
 		return False
-	
+
 	def drop_piece(self):
-		"""Move piece down one row"""
+		"""Move piece down one row; lock if cannot move further."""
 		new_pos = [self.current_pos[0] + 1, self.current_pos[1]]
 		if self.is_valid_position(self.current_shape, new_pos):
 			self.current_pos = new_pos
@@ -143,52 +146,51 @@ class TetrisGame:
 		else:
 			self.lock_piece()
 			return False
-	
+
 	def hard_drop(self):
-		"""Drop piece to the bottom immediately"""
+		"""Drop piece to the bottom immediately."""
 		while self.drop_piece():
-			self.score += 2  # Bonus for hard drop
-	
+			pass  # movement & locking handled in drop_piece()
+
 	def lock_piece(self):
-		"""Lock piece into the board"""
+		"""Lock piece into the board and spawn the next one."""
 		for y in range(len(self.current_shape)):
 			for x in range(len(self.current_shape[0])):
 				if self.current_shape[y][x]:
 					board_y = self.current_pos[0] + y
 					board_x = self.current_pos[1] + x
 					if board_y >= 0:
-						# Store shape name for color rendering
+						# Store shape index for color rendering
 						self.board[board_y][board_x] = SHAPE_NAMES.index(self.current_shape_name) + 1
-		
+
 		# Clear lines and spawn new piece
 		lines = self.clear_lines()
 		self.spawn_piece()
-		
 		return lines
-	
+
 	def clear_lines(self):
-		"""Clear completed lines and return count"""
+		"""Clear completed lines and return count."""
 		lines_to_clear = []
 		for y in range(self.height):
 			if np.all(self.board[y]):
 				lines_to_clear.append(y)
-		
+
 		# Remove cleared lines from bottom to top to avoid index shifting bugs
 		for y in sorted(lines_to_clear, reverse=True):
 			self.board = np.delete(self.board, y, axis=0)
 			self.board = np.vstack([np.zeros((1, self.width)), self.board])
-		
+
 		# Update score
 		num_lines = len(lines_to_clear)
 		if num_lines > 0:
 			self.lines_cleared += num_lines
 			# Tetris scoring: 1 line=100, 2=300, 3=500, 4=800
 			self.score += [0, 100, 300, 500, 800][num_lines]
-		
+
 		return num_lines
 
 	def render(self):
-		"""Render the game state as RGB array or display"""
+		"""Render the game state as RGB array or display."""
 		if self.render_mode is None:
 			return None
 
@@ -311,25 +313,24 @@ class TetrisGame:
 		else:
 			return self._get_rgb_array()
 
-	
 	def _get_rgb_array(self):
-		"""Convert pygame surface to numpy RGB array"""
+		"""Convert pygame surface to numpy RGB array (full window)."""
 		rgb_array = pygame.surfarray.array3d(self.screen)
 		rgb_array = np.transpose(rgb_array, (1, 0, 2))
 		return rgb_array
-	
+
 	def get_observation(self):
-		"""Get observation for RL agent (RGB image)"""
+		"""Get observation for RL agent (RGB image)."""
 		if self.render_mode == 'human':
 			self.render()
 			return self._get_rgb_array()
 		else:
 			return self.render()
-	
+
 	def get_state_matrix(self):
-		"""Get state as matrix (alternative to images)"""
+		"""Get state as matrix (board + current piece overlay)."""
 		state = self.board.copy()
-		
+
 		# Add current piece to state
 		for y in range(len(self.current_shape)):
 			for x in range(len(self.current_shape[0])):
@@ -338,18 +339,18 @@ class TetrisGame:
 					board_x = self.current_pos[1] + x
 					if 0 <= board_y < self.height and 0 <= board_x < self.width:
 						state[board_y][board_x] = -1  # Different value for current piece
-		
+
 		return state
-	
+
 	def get_board_height(self):
-		"""Get maximum height of pieces on board"""
+		"""Get maximum height of pieces on board."""
 		for y in range(self.height):
 			if np.any(self.board[y]):
 				return self.height - y
 		return 0
-	
+
 	def get_holes(self):
-		"""Count holes (empty cells with filled cells above)"""
+		"""Count holes (empty cells with filled cells above)."""
 		holes = 0
 		for x in range(self.width):
 			block_found = False
@@ -359,9 +360,9 @@ class TetrisGame:
 				elif block_found and not self.board[y][x]:
 					holes += 1
 		return holes
-	
+
 	def get_bumpiness(self):
-		"""Calculate bumpiness (sum of height differences between adjacent columns)"""
+		"""Calculate bumpiness (sum of height differences between adjacent columns)."""
 		heights = []
 		for x in range(self.width):
 			for y in range(self.height):
@@ -370,60 +371,22 @@ class TetrisGame:
 					break
 			else:
 				heights.append(0)
-		
+
 		bumpiness = 0
 		for i in range(len(heights) - 1):
 			bumpiness += abs(heights[i] - heights[i + 1])
 		return bumpiness
-	
-	def step(self, action):
-		"""
-		Execute action and return (observation, reward, done, info)
-		Actions: 0=left, 1=right, 2=rotate, 3=drop, 4=hard_drop
-		"""
-		if self.game_over:
-			return self.get_observation(), 0, True, {}
-		
-		reward = 0
-		
-		if action == 0:  # Move left
-			self.move_piece(-1)
-		elif action == 1:  # Move right
-			self.move_piece(1)
-		elif action == 2:  # Rotate
-			self.rotate_piece()
-		elif action == 3:  # Soft drop
-			if not self.drop_piece():
-				reward += 10  # Small reward for locking piece
-		elif action == 4:  # Hard drop
-			self.hard_drop()
-			reward += 10
-		
-		# Penalty for height and holes (encourages keeping board clean)
-		reward -= self.get_board_height() * 0.5
-		reward -= self.get_holes() * 2
-		
-		info = {
-			'score': self.score,
-			'lines_cleared': self.lines_cleared,
-			'height': self.get_board_height(),
-			'holes': self.get_holes(),
-			'bumpiness': self.get_bumpiness()
-		}
-		
-		return self.get_observation(), reward, self.game_over, info
-	
+
 	def close(self):
-		"""Clean up pygame"""
+		"""Clean up pygame."""
 		if self.render_mode is not None:
 			pygame.quit()
 
 	def play_manual(self):
+		"""Manual keyboard-controlled play loop."""
 		clock = pygame.time.Clock()
 		running = True
 
-		GRAVITY_FPS = 2
-		GRAVITY_INTERVAL = 1000 // GRAVITY_FPS
 		last_gravity_time = pygame.time.get_ticks()
 
 		while running:
@@ -444,13 +407,15 @@ class TetrisGame:
 					elif event.key == pygame.K_SPACE:
 						self.hard_drop()
 
+			# Gravity tick
 			now = pygame.time.get_ticks()
-			if not self.game_over and now - last_gravity_time >= GRAVITY_INTERVAL:
+			if not self.game_over and now - last_gravity_time >= self.gravity_interval:
 				self.drop_piece()
 				last_gravity_time = now
 
 			self.render()
 			clock.tick(self.render_fps)
+
 		self.close()
 
 
