@@ -57,18 +57,14 @@ class TetrisGame:
 		self.score = 0
 		self.lines_cleared = 0
 
-		# Initialize pygame for rendering
-		if self.render_mode is not None:
-			pygame.init()
-			if render_mode == 'human':
-				self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
-				pygame.display.set_caption("Tetris")
-			else:
-				self.screen = pygame.Surface((self.screen_width, self.screen_height))
-
+		pygame.init()
+		if render_mode == 'human':
+			self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
+			pygame.display.set_caption("Tetris")
+		else:
+			self.screen = pygame.Surface((self.screen_width, self.screen_height))
 		
 	def reset(self):
-		"""Reset the game state"""
 		self.board = np.zeros((self.height, self.width), dtype=int)
 		self.game_over = False
 		self.score = 0
@@ -79,7 +75,6 @@ class TetrisGame:
 	
 
 	def spawn_piece(self):
-		"""Spawn a new piece from the queue and refill queue"""
 		# Ensure queue exists
 		if not hasattr(self, "piece_queue") or len(self.piece_queue) == 0:
 			self.piece_queue = [np.random.choice(SHAPE_NAMES) for _ in range(self.queue_size)]
@@ -96,9 +91,7 @@ class TetrisGame:
 		if not self.is_valid_position(self.current_shape, self.current_pos):
 			self.game_over = True
 
-	
 	def is_valid_position(self, shape, pos):
-		"""Check if piece position is valid"""
 		for y in range(len(shape)):
 			for x in range(len(shape[0])):
 				if shape[y][x]:
@@ -115,7 +108,6 @@ class TetrisGame:
 		return True
 	
 	def rotate_piece(self, clockwise=True):
-		"""Rotate current piece"""
 		if clockwise:
 			rotated = np.rot90(self.current_shape, k=-1)
 		else:
@@ -127,7 +119,6 @@ class TetrisGame:
 		return False
 	
 	def move_piece(self, dx):
-		"""Move piece horizontally"""
 		new_pos = [self.current_pos[0], self.current_pos[1] + dx]
 		if self.is_valid_position(self.current_shape, new_pos):
 			self.current_pos = new_pos
@@ -135,7 +126,6 @@ class TetrisGame:
 		return False
 	
 	def drop_piece(self):
-		"""Move piece down one row"""
 		new_pos = [self.current_pos[0] + 1, self.current_pos[1]]
 		if self.is_valid_position(self.current_shape, new_pos):
 			self.current_pos = new_pos
@@ -145,19 +135,16 @@ class TetrisGame:
 			return False
 	
 	def hard_drop(self):
-		"""Drop piece to the bottom immediately"""
 		while self.drop_piece():
-			self.score += 2  # Bonus for hard drop
+			self.score += 2
 	
 	def lock_piece(self):
-		"""Lock piece into the board"""
 		for y in range(len(self.current_shape)):
 			for x in range(len(self.current_shape[0])):
 				if self.current_shape[y][x]:
 					board_y = self.current_pos[0] + y
 					board_x = self.current_pos[1] + x
 					if board_y >= 0:
-						# Store shape name for color rendering
 						self.board[board_y][board_x] = SHAPE_NAMES.index(self.current_shape_name) + 1
 		
 		# Clear lines and spawn new piece
@@ -167,7 +154,6 @@ class TetrisGame:
 		return lines
 	
 	def clear_lines(self):
-		"""Clear completed lines and return count"""
 		lines_to_clear = []
 		for y in range(self.height):
 			if np.all(self.board[y]):
@@ -188,51 +174,31 @@ class TetrisGame:
 		return num_lines
 
 	def render(self):
-		"""Render the game state as RGB array or display"""
-		if self.render_mode is None:
-			return None
-
-		# Clear screen
 		self.screen.fill((0, 0, 0))
 
-		# Fonts
 		font = pygame.font.SysFont("Arial", 20, bold=True)
 		title_font = pygame.font.SysFont("Arial", 24, bold=True)
-
-		# -------- TITLE --------
 		title_surf = title_font.render("TETRIS", True, (255, 255, 255))
 		self.screen.blit(title_surf, (10, 5))
 
-		# -------- SCORE & LINES --------
+		# scores & lines
 		score_surf = font.render(f"Score: {self.score}", True, (200, 200, 200))
 		lines_surf = font.render(f"Lines: {self.lines_cleared}", True, (200, 200, 200))
 		self.screen.blit(score_surf, (10, 35))
 		self.screen.blit(lines_surf, (10, 60))
 
-		board_offset_y = self.hud_height
-
-		# -------- BORDER AROUND BOARD --------
-		border_rect = pygame.Rect(
-			0,
-			board_offset_y,
-			self.width * self.block_size,
-			self.height * self.block_size,
-		)
+		# border and board offset
+		border_rect = pygame.Rect(0, self.hud_height, self.width * self.block_size, self.height * self.block_size)
 		pygame.draw.rect(self.screen, (255, 255, 255), border_rect, 2)
 
-		# -------- GRID --------
+		# grid
 		grid_color = (40, 40, 40)
 		for y in range(self.height):
 			for x in range(self.width):
-				rect = (
-					x * self.block_size,
-					y * self.block_size + board_offset_y,
-					self.block_size,
-					self.block_size,
-				)
+				rect = (x * self.block_size, y * self.block_size + self.hud_height, self.block_size, self.block_size)
 				pygame.draw.rect(self.screen, grid_color, rect, 1)
 
-		# -------- LOCKED PIECES --------
+		# locked pieces
 		for y in range(self.height):
 			for x in range(self.width):
 				if self.board[y][x]:
@@ -240,50 +206,37 @@ class TetrisGame:
 					shape_idx = cell - 1
 					shape_name = SHAPE_NAMES[shape_idx]
 					color = COLORS[shape_name]
-					rect = (
-						x * self.block_size,
-						y * self.block_size + board_offset_y,
-						self.block_size,
-						self.block_size,
-					)
+					rect = (x * self.block_size, y * self.block_size + self.hud_height,
+							self.block_size, self.block_size)
 					pygame.draw.rect(self.screen, color, rect)
 					pygame.draw.rect(self.screen, (50, 50, 50), rect, 1)
 
-		# -------- CURRENT PIECE --------
+		# current piece
 		if not self.game_over:
 			color = COLORS[self.current_shape_name]
 			for y in range(len(self.current_shape)):
 				for x in range(len(self.current_shape[0])):
 					if self.current_shape[y][x]:
 						sx = (self.current_pos[1] + x) * self.block_size
-						sy = (self.current_pos[0] + y) * self.block_size + board_offset_y
+						sy = (self.current_pos[0] + y) * self.block_size + self.hud_height
 						rect = (sx, sy, self.block_size, self.block_size)
 						pygame.draw.rect(self.screen, color, rect)
 						pygame.draw.rect(self.screen, (50, 50, 50), rect, 1)
 
-		# -------- NEXT PIECES PREVIEW (RIGHT SIDEBAR) --------
-		sidebar_x = self.width * self.block_size + 10  # start of sidebar
+		# next pieces queue
+		sidebar_x = self.width * self.block_size + 10
 		next_label = font.render("Next:", True, (200, 200, 200))
-		self.screen.blit(next_label, (sidebar_x, board_offset_y - 30))
+		self.screen.blit(next_label, (sidebar_x, self.hud_height - 30))
 
-		# preview block size (smaller than main board)
 		preview_block = max(8, self.block_size // 2)
-
 		for idx, shape_name in enumerate(self.piece_queue[:self.queue_size]):
 			shape = SHAPES[shape_name]
 			color = COLORS[shape_name]
 
-			# Center each preview in a small box
-			box_top = board_offset_y + idx * (preview_block * 3 + 10)
+			box_top = self.hud_height + idx * (preview_block * 3 + 10)
 			box_height = preview_block * 3
 			box_width = preview_block * 4
-
-			box_rect = pygame.Rect(
-				sidebar_x,
-				box_top,
-				box_width,
-				box_height,
-			)
+			box_rect = pygame.Rect(sidebar_x, box_top, box_width, box_height)
 			pygame.draw.rect(self.screen, (80, 80, 80), box_rect, 1)
 
 			# Compute offset so the shape is roughly centered in the box
@@ -295,31 +248,22 @@ class TetrisGame:
 			for y in range(shape_h):
 				for x in range(shape_w):
 					if shape[y][x]:
-						rect = (
-							offset_x + x * preview_block,
-							offset_y + y * preview_block,
-							preview_block,
-							preview_block,
-						)
+						rect = (offset_x + x * preview_block, offset_y + y * preview_block,
+								preview_block, preview_block)
 						pygame.draw.rect(self.screen, color, rect)
 						pygame.draw.rect(self.screen, (30, 30, 30), rect, 1)
 
-		# -------- DISPLAY OR RETURN ARRAY --------
 		if self.render_mode == 'human':
 			pygame.display.flip()
-			return None
-		else:
-			return self._get_rgb_array()
 
+		return self._get_rgb_array()
 	
 	def _get_rgb_array(self):
-		"""Convert pygame surface to numpy RGB array"""
 		rgb_array = pygame.surfarray.array3d(self.screen)
 		rgb_array = np.transpose(rgb_array, (1, 0, 2))
 		return rgb_array
 	
 	def get_observation(self):
-		"""Get observation for RL agent (RGB image)"""
 		if self.render_mode == 'human':
 			self.render()
 			return self._get_rgb_array()
@@ -327,7 +271,6 @@ class TetrisGame:
 			return self.render()
 	
 	def get_state_matrix(self):
-		"""Get state as matrix (alternative to images)"""
 		state = self.board.copy()
 		
 		# Add current piece to state
@@ -342,14 +285,12 @@ class TetrisGame:
 		return state
 	
 	def get_board_height(self):
-		"""Get maximum height of pieces on board"""
 		for y in range(self.height):
 			if np.any(self.board[y]):
 				return self.height - y
 		return 0
 	
 	def get_holes(self):
-		"""Count holes (empty cells with filled cells above)"""
 		holes = 0
 		for x in range(self.width):
 			block_found = False
@@ -361,7 +302,6 @@ class TetrisGame:
 		return holes
 	
 	def get_bumpiness(self):
-		"""Calculate bumpiness (sum of height differences between adjacent columns)"""
 		heights = []
 		for x in range(self.width):
 			for y in range(self.height):
@@ -377,9 +317,7 @@ class TetrisGame:
 		return bumpiness
 	
 	def close(self):
-		"""Clean up pygame"""
-		if self.render_mode is not None:
-			pygame.quit()
+		pygame.quit()
 
 	def play_manual(self):
 		clock = pygame.time.Clock()
@@ -415,7 +353,6 @@ class TetrisGame:
 
 
 if __name__ == "__main__":
-	# Manual-play test with visualization
 	game = TetrisGame(render_mode='human')
 	game.reset()
 	game.play_manual()
