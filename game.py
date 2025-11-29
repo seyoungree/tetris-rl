@@ -325,6 +325,9 @@ class TetrisGame:
 		last_gravity_time = pygame.time.get_ticks()
 
 		while running:
+			if self.game_over:
+				break
+
 			for event in pygame.event.get():
 				if event.type == pygame.QUIT:
 					running = False
@@ -349,8 +352,8 @@ class TetrisGame:
 
 			self.render()
 			clock.tick(self.render_fps)
-		self.close()
 
+		self.close()
 
 if __name__ == "__main__":
 	game = TetrisGame(render_mode='human')
