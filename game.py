@@ -71,7 +71,7 @@ class TetrisGame:
 		self.lines_cleared = 0
 		self.piece_queue = [np.random.choice(SHAPE_NAMES) for _ in range(self.queue_size)]
 		self.spawn_piece()
-		return self.get_observation()
+		return self.render()
 	
 
 	def spawn_piece(self):
@@ -262,13 +262,6 @@ class TetrisGame:
 		rgb_array = pygame.surfarray.array3d(self.screen)
 		rgb_array = np.transpose(rgb_array, (1, 0, 2))
 		return rgb_array
-	
-	def get_observation(self):
-		if self.render_mode == 'human':
-			self.render()
-			return self._get_rgb_array()
-		else:
-			return self.render()
 	
 	def get_state_matrix(self):
 		state = self.board.copy()
