@@ -6,16 +6,13 @@ import time
 
 class TetrisEnv(gym.Env):
     def __init__(self, width=10, height=20, render_mode="rgb_array"):
-        """
-        action is in [0, width * 4 - 1]
-        rotation = action // width; column = action %  width
-        """
         super().__init__()
         self.width, self.height = width, height
         self.render_mode = render_mode
         self.game = TetrisGame(width=width, height=height, render_mode=render_mode)
         h, w, c = self.game.reset().shape
         self.observation_space = spaces.Box(low=0, high=255, shape=(h,w,c), dtype=np.uint8)
+        # action: rotation = action // width and column = action % width
         self.action_space = spaces.Discrete(4 * self.width)
 
     def reset(self, seed=None, options=None):
