@@ -30,7 +30,7 @@ class TetrisEnv(gym.Env):
             frame = self.game.render()
             return frame, 0.0, True, False, {}
 
-        num_rotations = (action // self.width) % 4
+        num_rotations = int((action // self.width) % 4)
         target_col = action % self.width
 
         prev_score = self.game.score
@@ -66,7 +66,7 @@ class TetrisEnv(gym.Env):
         height = self.game.get_board_height()
         holes = self.game.get_holes()
         bumpiness = self.game.get_bumpiness()
-        reward = score_delta - 0.5 * height - 2.0 * holes
+        reward = - 0.5 * height - 0.36 * holes - 0.2 * bumpiness + 10 * lines_cleared
         
         state = self.game.render().astype(np.uint8)
         info = {"score": self.game.score, "lines_cleared": self.game.lines_cleared,
