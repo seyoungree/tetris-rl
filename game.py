@@ -193,7 +193,7 @@ class TetrisGame:
 			for x in range(self.width):
 				if self.board[y][x]:
 					cell = int(self.board[y][x])
-					shape_idx, shape_name = cell - 1, SHAPE_NAMES[shape_idx]
+					shape_idx = cell - 1; shape_name = SHAPE_NAMES[shape_idx]
 					color = COLORS[shape_name]
 					rect = (x * self.block_size, y * self.block_size + self.hud_height,
 							self.block_size, self.block_size)
