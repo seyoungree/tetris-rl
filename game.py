@@ -1,8 +1,6 @@
 import numpy as np
 import pygame
-from copy import deepcopy
 
-# Tetromino shapes
 SHAPES = {
 	'I': [[1, 1, 1, 1]],
 	'O': [[1, 1], [1, 1]],
@@ -15,7 +13,6 @@ SHAPES = {
 
 SHAPE_NAMES = list(SHAPES.keys())
 
-# Colors for rendering
 COLORS = {
 	'I': (0, 240, 240),
 	'O': (240, 240, 0),
@@ -26,11 +23,10 @@ COLORS = {
 	'L': (240, 160, 0)
 }
 
-
 class TetrisGame:
-	def __init__(self, width=10, height=20, block_size=20, render_mode='rgb_array', gravity_fps=2, render_fps=30, queue_size=5):
-		self.width = width
-		self.height = height
+	def __init__(self, width=10, height=20, block_size=20, 
+			  	 render_mode='rgb_array', gravity_fps=2, render_fps=30, queue_size=5):
+		self.width, self.height = width, height
 		self.block_size = block_size
 		self.render_mode = render_mode
 
@@ -40,8 +36,8 @@ class TetrisGame:
 		self.gravity_interval = 1000 // self.gravity_fps
 
 		# HUD / layout
-		self.hud_height = 100                    # space above board for title/score
-		self.sidebar_width = 6 * block_size      # space on the right for next pieces
+		self.hud_height = 100
+		self.sidebar_width = 6 * block_size
 		self.screen_width = width * block_size + self.sidebar_width
 		self.screen_height = height * block_size + self.hud_height
 
@@ -49,13 +45,11 @@ class TetrisGame:
 		self.piece_queue = []                
 
 		self.board = np.zeros((height, width), dtype=int)
-		self.current_piece = None
-		self.current_shape = None
+		self.current_piece, self.current_shape = None, None
 		self.current_shape_name = None
 		self.current_pos = [0, 0]
 		self.game_over = False
-		self.score = 0
-		self.lines_cleared = 0
+		self.score, self.lines_cleared = 0, 0
 
 		pygame.init()
 		if render_mode == 'human':
@@ -73,7 +67,6 @@ class TetrisGame:
 		self.spawn_piece()
 		return self.render()
 	
-
 	def spawn_piece(self):
 		# Ensure queue exists
 		if not hasattr(self, "piece_queue") or len(self.piece_queue) == 0:
@@ -135,9 +128,7 @@ class TetrisGame:
 			return False
 	
 	def hard_drop(self):
-		while self.drop_piece():
-			self.score += 2
-	
+		while self.drop_piece(): pass	
 	def lock_piece(self):
 		for y in range(len(self.current_shape)):
 			for x in range(len(self.current_shape[0])):
@@ -150,7 +141,6 @@ class TetrisGame:
 		# Clear lines and spawn new piece
 		lines = self.clear_lines()
 		self.spawn_piece()
-		
 		return lines
 	
 	def clear_lines(self):
@@ -203,8 +193,7 @@ class TetrisGame:
 			for x in range(self.width):
 				if self.board[y][x]:
 					cell = int(self.board[y][x])
-					shape_idx = cell - 1
-					shape_name = SHAPE_NAMES[shape_idx]
+					shape_idx, shape_name = cell - 1, SHAPE_NAMES[shape_idx]
 					color = COLORS[shape_name]
 					rect = (x * self.block_size, y * self.block_size + self.hud_height,
 							self.block_size, self.block_size)
@@ -255,7 +244,6 @@ class TetrisGame:
 
 		if self.render_mode == 'human':
 			pygame.display.flip()
-
 		return self._get_rgb_array()
 	
 	def _get_rgb_array(self):
@@ -318,8 +306,7 @@ class TetrisGame:
 		last_gravity_time = pygame.time.get_ticks()
 
 		while running:
-			if self.game_over:
-				break
+			if self.game_over: break
 
 			for event in pygame.event.get():
 				if event.type == pygame.QUIT:
@@ -345,7 +332,6 @@ class TetrisGame:
 
 			self.render()
 			clock.tick(self.render_fps)
-
 		self.close()
 
 if __name__ == "__main__":
