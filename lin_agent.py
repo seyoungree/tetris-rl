@@ -65,7 +65,7 @@ def evaluate_board(sim_game, prev_lines, piece_final_y, piece_shape):
     return score
 
 
-def choose_dellacherie_action(env: TetrisEnv):
+def choose_action(env: TetrisEnv):
     game = env.game
     width = env.width
     n_actions = env.action_space.n
@@ -108,14 +108,14 @@ def choose_dellacherie_action(env: TetrisEnv):
     return best_action, best_score
 
 
-def run_dellacherie_episode(width=10, height=20, render=True):
+def run_episode(width=10, height=20, render=True):
     mode = "human" if render else "rgb_array"
     env = TetrisEnv(width=width, height=height, render_mode=mode)
     obs, info = env.reset()
     done = False
 
     while not done:
-        act, val = choose_dellacherie_action(env)
+        act, val = choose_action(env)
         obs, reward, terminated, truncated, info = env.step(act)
         done = terminated or truncated
 
@@ -128,4 +128,4 @@ def run_dellacherie_episode(width=10, height=20, render=True):
     
 
 if __name__ == "__main__":
-    run_dellacherie_episode(width=10, height=20, render=True)
+    run_episode(width=10, height=20, render=True)
