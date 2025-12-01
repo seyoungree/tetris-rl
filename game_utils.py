@@ -44,7 +44,7 @@ def column_transitions(board):
     return transitions
 
 
-def wells(board):
+def calc_wells(board):
     """Cumulative well depth."""
     h, w = board.shape
     well_sum = 0
@@ -75,3 +75,44 @@ def landing_height(board, piece_final_y, piece_height, board_height):
 
 def eroded_cells(cleared_lines, piece_blocks_filled_those_rows):
     return cleared_lines * piece_blocks_filled_those_rows
+
+
+def column_heights(board):
+    H, W = board.shape
+    heights = np.zeros(W, dtype=np.int32)
+    for x in range(W):
+        col = board[:, x]
+        nz = np.where(col > 0)[0]
+        heights[x] = H - nz[0] if len(nz) > 0 else 0
+    return heights
+
+
+def bumpiness_and_agg_height(board):
+    heights = column_heights(board)
+    agg_h = int(heights.sum())
+    bump = int(np.abs(np.diff(heights)).sum())
+    return agg_h, bump
+
+
+def get_board_height(board):
+    H, W = board.shape
+    for y in range(H):
+        if np.any(board[y]):
+            return H - y
+    return 0
+
+def get_bumpiness(board):
+    H, W = board.shape
+    heights = []
+    for x in range(W):
+        for y in range(H):
+            if board[y][x]:
+                heights.append(H - y)
+                break
+        else:
+            heights.append(0)
+    
+    bumpiness = 0
+    for i in range(len(heights) - 1):
+        bumpiness += abs(heights[i] - heights[i + 1])
+    return bumpiness

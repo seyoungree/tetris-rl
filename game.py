@@ -129,6 +129,7 @@ class TetrisGame:
 	
 	def hard_drop(self):
 		while self.drop_piece(): pass	
+	
 	def lock_piece(self):
 		for y in range(len(self.current_shape)):
 			for x in range(len(self.current_shape[0])):
@@ -264,38 +265,6 @@ class TetrisGame:
 						state[board_y][board_x] = -1  # Different value for current piece
 		
 		return state
-	
-	def get_board_height(self):
-		for y in range(self.height):
-			if np.any(self.board[y]):
-				return self.height - y
-		return 0
-	
-	def get_holes(self):
-		holes = 0
-		for x in range(self.width):
-			block_found = False
-			for y in range(self.height):
-				if self.board[y][x]:
-					block_found = True
-				elif block_found and not self.board[y][x]:
-					holes += 1
-		return holes
-	
-	def get_bumpiness(self):
-		heights = []
-		for x in range(self.width):
-			for y in range(self.height):
-				if self.board[y][x]:
-					heights.append(self.height - y)
-					break
-			else:
-				heights.append(0)
-		
-		bumpiness = 0
-		for i in range(len(heights) - 1):
-			bumpiness += abs(heights[i] - heights[i + 1])
-		return bumpiness
 	
 	def close(self):
 		pygame.quit()
