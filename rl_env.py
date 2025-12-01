@@ -2,6 +2,7 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 from game import TetrisGame
+from game_utils import *
 import time
 
 class TetrisEnv(gym.Env):
@@ -12,8 +13,8 @@ class TetrisEnv(gym.Env):
         self.game = TetrisGame(width=width, height=height, render_mode=render_mode)
         h, w, c = self.game.reset().shape
         self.observation_space = spaces.Box(low=0, high=255, shape=(h,w,c), dtype=np.uint8)
-        # action: rotation = action // width and column = action % width
         self.action_space = spaces.Discrete(4 * self.width)
+
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -29,6 +30,7 @@ class TetrisEnv(gym.Env):
         if self.game.game_over:
             frame = self.game.render()
             return frame, 0.0, True, False, {}
+
 
         num_rotations = int((action // self.width) % 4)
         target_col = action % self.width
@@ -61,12 +63,23 @@ class TetrisEnv(gym.Env):
         #         break
 
         # reward calculation
-        score_delta = self.game.score - prev_score
         lines_cleared = self.game.lines_cleared - prev_lines
-        height = self.game.get_board_height()
-        holes = self.game.get_holes()
-        bumpiness = self.game.get_bumpiness()
-        reward = - 0.5 * height - 0.36 * holes - 0.2 * bumpiness + 10 * lines_cleared
+        height = get_board_height(self.game.board)
+        holes = count_holes(self.game.board)
+        bumpiness = get_bumpiness(self.game.board)
+
+        reward = 0.1
+        if lines_cleared > 0:
+            line_rewards = [0.0, 1.0, 3.0, 5.0, 8.0]
+            reward += line_rewards[min(lines_cleared, 4)]
+        # if height_delta > 0:
+        #     reward -= 0.05 * height_delta
+        # if holes_delta > 0:
+        #     reward -= 0.3 * holes_delta
+        # if bumpiness_delta > 0:
+        #     reward -= 0.05 * bumpiness_delta
+        if self.game.game_over:
+            reward -= 5.0
         
         state = self.game.render().astype(np.uint8)
         info = {"score": self.game.score, "lines_cleared": self.game.lines_cleared,
