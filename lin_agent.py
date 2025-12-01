@@ -2,9 +2,9 @@ import time
 from copy import deepcopy
 from game import TetrisGame
 from rl_env import TetrisEnv
-from features import (
+from game_utils import (
     count_holes, row_transitions, column_transitions,
-    wells, landing_height, eroded_cells
+    calc_wells, landing_height, eroded_cells
 )
 
 W_HOLES      = -4.0
@@ -41,7 +41,7 @@ def evaluate_board(sim_game, prev_lines, piece_final_y, piece_shape):
     holes = count_holes(board)
     rtrans = row_transitions(board)
     ctrans = column_transitions(board)
-    well_sum = wells(board)
+    well_sum = calc_wells(board)
 
     # lines cleared from THIS placement
     cleared = sim_game.lines_cleared - prev_lines
@@ -128,4 +128,4 @@ def run_episode(width=10, height=20, render=True):
     
 
 if __name__ == "__main__":
-    run_episode(width=10, height=20, render=True)
+    run_episode(width=6, height=12, render=True)
