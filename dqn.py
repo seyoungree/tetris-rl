@@ -9,7 +9,7 @@ import torch.optim as optim
 from rl_env import TetrisEnv
 from game_utils import *
 
-BOARD_W, BOARD_H = 8, 16
+BOARD_W, BOARD_H = 5, 10
 RUN_ID = time.strftime('%Y%m%d-%H%M%S')
 RUN_DIR = os.path.join("runs", f"dqn_tetris_{BOARD_W}x{BOARD_H}_{RUN_ID}")
 MODEL_PATH = os.path.join(RUN_DIR, "dqn_final.pth")
@@ -46,7 +46,6 @@ class DQN(nn.Module):
             nn.ReLU(),
         )
 
-        # figure out conv output size dynamically
         with torch.no_grad():
             dummy = torch.zeros(1, in_channels, board_height, board_width)
             conv_out = self.conv(dummy).view(1, -1).size(1)
@@ -64,13 +63,12 @@ class DQN(nn.Module):
 
 
 def get_state(env):
-    mat = env.game.get_state_matrix().astype(np.float32)  # (3, H, W)
-    return mat
+    return env.game.get_state_matrix().astype(np.float32)
 
 
 def train_dqn(
     num_episodes=50000,
-    buffer_capacity=20000,
+    buffer_capacity=50000,
     batch_size=64,
     gamma=0.99,
     lr=1e-4,
@@ -83,10 +81,11 @@ def train_dqn(
 ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     env = TetrisEnv(width=BOARD_W, height=BOARD_H, render_mode=None)
+    env.reset()
     s = get_state(env)
+    in_channels = s.shape[0]
     n_actions = env.action_space.n
-    
-    # save hyperparameters to a log
+
     os.makedirs(RUN_DIR, exist_ok=True)
     hparams = {
         "board_w": BOARD_W,
@@ -103,13 +102,14 @@ def train_dqn(
         "epsilon_decay_steps": epsilon_decay_steps,
         "save_interval": save_interval,
         "device": str(device),
+        "in_channels": in_channels,
     }
     with open(os.path.join(RUN_DIR, "hparams.json"), "w") as f:
         json.dump(hparams, f, indent=2)
 
     print("Training DQN...")
-    q_net = DQN(BOARD_H, BOARD_W, n_actions).to(device)
-    target_net = DQN(BOARD_H, BOARD_W, n_actions).to(device)
+    q_net = DQN(BOARD_H, BOARD_W, n_actions, in_channels=in_channels).to(device)
+    target_net = DQN(BOARD_H, BOARD_W, n_actions, in_channels=in_channels).to(device)
     target_net.load_state_dict(q_net.state_dict())
     target_net.eval()
 
@@ -134,6 +134,7 @@ def train_dqn(
 
         while not done:
             step_count += 1
+
             if random.random() < epsilon:
                 a = random.randrange(n_actions)
             else:
@@ -150,26 +151,22 @@ def train_dqn(
             replay.push(s, a, reward, s2, float(done))
             s = s2
 
-            # epsilon decay
             frac = min(1.0, step_count / epsilon_decay_steps)
             epsilon = epsilon_start + frac * (epsilon_end - epsilon_start)
 
-            # learn
             if len(replay) >= max(start_learning, batch_size):
                 batch = replay.sample(batch_size)
                 states, actions, rewards, next_states, dones = zip(*batch)
 
                 states = torch.from_numpy(np.stack(states)).to(device)
+                next_states = torch.from_numpy(np.stack(next_states)).to(device)
                 actions = torch.tensor(actions, dtype=torch.long, device=device)
                 rewards = torch.tensor(rewards, dtype=torch.float32, device=device)
-                next_states = torch.from_numpy(np.stack(next_states)).to(device)
                 dones = torch.tensor(dones, dtype=torch.float32, device=device)
 
-                # Q(s,a)
                 q_values = q_net(states)
                 q = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
 
-                # target: r + gamma * max_a' Q_target(s', a') * (1 - done)
                 with torch.no_grad():
                     next_q = target_net(next_states).max(1)[0]
                     target = rewards + gamma * next_q * (1.0 - dones)
@@ -183,7 +180,6 @@ def train_dqn(
 
                 ep_losses.append(loss.item())
 
-                # update target network
                 if step_count % target_update_interval == 0:
                     target_net.load_state_dict(q_net.state_dict())
 
@@ -195,7 +191,6 @@ def train_dqn(
         episode_lines.append(final_lines)
         best_score = max(best_score, final_score)
 
-        # logging
         if ep % 100 == 0:
             recent = min(100, len(episode_rewards))
             avg_r = np.mean(episode_rewards[-recent:])
@@ -213,7 +208,6 @@ def train_dqn(
                 f"Buf: {len(replay):5d}"
             )
 
-        # simple checkpoint
         if ep % save_interval == 0:
             ckpt_path = os.path.join(RUN_DIR, f"dqn_ep{ep}.pth")
             torch.save(
@@ -226,9 +220,8 @@ def train_dqn(
                 },
                 ckpt_path,
             )
-            print(f"  ✓ Saved checkpoint: {ckpt_path}")
+            print(f"Saved checkpoint: {ckpt_path}")
 
-    # save final model
     torch.save(
         {
             "episode": num_episodes,
@@ -238,7 +231,6 @@ def train_dqn(
         MODEL_PATH,
     )
 
-    # Save reward histories / metrics
     metrics_path = os.path.join(RUN_DIR, "metrics.npz")
     np.savez(
         metrics_path,
@@ -257,9 +249,14 @@ def train_dqn(
 
 def eval_greedy(model_path, num_episodes=5, render=True):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    render_mode="human" if render else "rgb_array"
+    render_mode = "human" if render else "rgb_array"
     env = TetrisEnv(width=BOARD_W, height=BOARD_H, render_mode=render_mode)
-    q_net = DQN(BOARD_H, BOARD_W, env.action_space.n).to(device)
+    env.reset()
+    s = get_state(env)
+    in_channels = s.shape[0]
+    n_actions = env.action_space.n
+
+    q_net = DQN(BOARD_H, BOARD_W, n_actions, in_channels=in_channels).to(device)
     checkpoint = torch.load(model_path, map_location=device)
     q_net.load_state_dict(checkpoint["model_state_dict"])
     q_net.eval()

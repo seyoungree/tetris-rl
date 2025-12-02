@@ -43,7 +43,9 @@ class TetrisEnv(gym.Env):
 
         num_rotations = int((action // self.width) % 4)
         target_col = action % self.width
-        prev_lines = self.game.lines_cleared
+        # prev_lines = self.game.lines_cleared
+        # prev_holes = count_holes(self.game.board)
+        # prev_bumpiness = get_bumpiness(self.game.board)
 
         # rotations
         for _ in range(num_rotations):
@@ -70,6 +72,9 @@ class TetrisEnv(gym.Env):
 
         reward = 0.1
         reward += [0.0, 1.0, 3.0, 5.0, 8.0][lines_cleared]
+        # reward -= 0.01 * (holes - prev_holes)
+        # reward -= 0.005 * (bumpiness - prev_bumpiness)
+        # reward -= 0.01 * (height - prev_height)
         if self.game.game_over:
             reward -= 10.0
         
