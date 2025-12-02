@@ -43,8 +43,6 @@ class TetrisEnv(gym.Env):
 
         num_rotations = int((action // self.width) % 4)
         target_col = action % self.width
-
-        prev_score = self.game.score
         prev_lines = self.game.lines_cleared
 
         # rotations
@@ -62,14 +60,7 @@ class TetrisEnv(gym.Env):
             moved = self.game.move_piece(-1)
             if not moved: break
             self._animate()
-
-        # keep soft-dropping until lock? not sure :(
         self.game.hard_drop()
-        # while not self.game.game_over:
-        #     moved_down = self.game.drop_piece()
-        #     # self._maybe_animate()
-        #     if not moved_down:
-        #         break
 
         # reward calculation
         lines_cleared = self.game.lines_cleared - prev_lines
@@ -78,17 +69,9 @@ class TetrisEnv(gym.Env):
         bumpiness = get_bumpiness(self.game.board)
 
         reward = 0.1
-        if lines_cleared > 0:
-            line_rewards = [0.0, 1.0, 3.0, 5.0, 8.0]
-            reward += line_rewards[min(lines_cleared, 4)]
-        # if height_delta > 0:
-        #     reward -= 0.05 * height_delta
-        # if holes_delta > 0:
-        #     reward -= 0.3 * holes_delta
-        # if bumpiness_delta > 0:
-        #     reward -= 0.05 * bumpiness_delta
+        reward += [0.0, 1.0, 3.0, 5.0, 8.0][lines_cleared]
         if self.game.game_over:
-            reward -= 5.0
+            reward -= 10.0
         
         state = self.get_state()
         info = {"score": self.game.score, "lines_cleared": self.game.lines_cleared,
