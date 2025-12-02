@@ -25,7 +25,7 @@ COLORS = {
 
 class TetrisGame:
 	def __init__(self, width=10, height=20, block_size=20, 
-			  	 render_mode='rgb_array', gravity_fps=2, render_fps=30, queue_size=5):
+				render_mode='rgb_array', gravity_fps=2, render_fps=30, queue_size=5):
 		self.width, self.height = width, height
 		self.block_size = block_size
 		self.render_mode = render_mode
@@ -55,7 +55,7 @@ class TetrisGame:
 		if render_mode == 'human':
 			self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
 			pygame.display.set_caption("Tetris")
-		else:
+		elif render_mode == 'rgb_array':
 			self.screen = pygame.Surface((self.screen_width, self.screen_height))
 		
 	def reset(self):
@@ -65,7 +65,8 @@ class TetrisGame:
 		self.lines_cleared = 0
 		self.piece_queue = [np.random.choice(SHAPE_NAMES) for _ in range(self.queue_size)]
 		self.spawn_piece()
-		return self.render()
+		if self.render_mode is not None:
+			self.render()
 	
 	def spawn_piece(self):
 		# Ensure queue exists
@@ -253,18 +254,36 @@ class TetrisGame:
 		return rgb_array
 	
 	def get_state_matrix(self):
-		state = self.board.copy()
-		
-		# Add current piece to state
+		h, w = self.height, self.width
+
+		# Channel 0: locked blocks
+		locked = (self.board > 0).astype(np.float32)
+
+		# Channel 1: current falling piece
+		current = np.zeros_like(locked, dtype=np.float32)
 		for y in range(len(self.current_shape)):
 			for x in range(len(self.current_shape[0])):
 				if self.current_shape[y][x]:
-					board_y = self.current_pos[0] + y
-					board_x = self.current_pos[1] + x
-					if 0 <= board_y < self.height and 0 <= board_x < self.width:
-						state[board_y][board_x] = -1  # Different value for current piece
-		
+					by = self.current_pos[0] + y
+					bx = self.current_pos[1] + x
+					if 0 <= by < h and 0 <= bx < w:
+						current[by][bx] = 1.0
+
+		# Channel 2: column height map, normalized [0,1]
+		heights = np.zeros_like(locked, dtype=np.float32)
+		for col in range(w):
+			col_cells = locked[:, col]
+			if col_cells.any():
+				top_filled = np.argmax(col_cells)  # 0 at top
+				height_val = h - top_filled       # higher = more filled
+			else:
+				height_val = 0
+			heights[:, col] = height_val / h
+
+		# Stack into (C, H, W)
+		state = np.stack([locked, current], axis=0)
 		return state
+
 	
 	def close(self):
 		pygame.quit()
@@ -304,6 +323,6 @@ class TetrisGame:
 		self.close()
 
 if __name__ == "__main__":
-	game = TetrisGame(render_mode='human')
+	game = TetrisGame(render_mode='rgb_array')
 	game.reset()
 	game.play_manual()

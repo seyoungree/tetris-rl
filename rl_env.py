@@ -11,26 +11,35 @@ class TetrisEnv(gym.Env):
         self.width, self.height = width, height
         self.render_mode = render_mode
         self.game = TetrisGame(width=width, height=height, render_mode=render_mode)
-        h, w, c = self.game.reset().shape
-        self.observation_space = spaces.Box(low=0, high=255, shape=(h,w,c), dtype=np.uint8)
+        self.game.reset()
+        sample_obs = self.get_state()
+        if self.render_mode is None:
+            self.observation_space = spaces.Box(low=0.0, high=1.0, shape=sample_obs.shape, dtype=np.float32)
+        else:
+            self.observation_space = spaces.Box(low=0, high=255, shape=sample_obs.shape, dtype=np.uint8)
         self.action_space = spaces.Discrete(4 * self.width)
-
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
-        frame = self.game.reset()
-        return frame, {}
+        self.game.reset()
+        obs = self.get_state()
+        return obs, {}
 
     def _animate(self):
         if self.render_mode == "human":
             self.game.render()
             time.sleep(0.1)
+    
+    def get_state(self):
+        if self.render_mode is None:
+            return self.game.get_state_matrix().astype(np.float32)
+        else:
+            return self.game.render()
 
     def step(self, action):
         if self.game.game_over:
-            frame = self.game.render()
+            frame = self.get_state()
             return frame, 0.0, True, False, {}
-
 
         num_rotations = int((action // self.width) % 4)
         target_col = action % self.width
@@ -81,7 +90,7 @@ class TetrisEnv(gym.Env):
         if self.game.game_over:
             reward -= 5.0
         
-        state = self.game.render().astype(np.uint8)
+        state = self.get_state()
         info = {"score": self.game.score, "lines_cleared": self.game.lines_cleared,
                 "height": height, "holes": holes, "bumpiness": bumpiness, "lines_cleared_move": lines_cleared,
                 "rotations": num_rotations, "column_used": target_col}
