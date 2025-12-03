@@ -324,10 +324,10 @@ def train_vector_dqn(
 	return q_net
 
 
-def eval_greedy(model_path, num_episodes=10, render=False):
+def eval_greedy(model_path, num_episodes=10, render=False, seed=None):
 	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 	render_mode = "human" if render else "rgb_array"
-	env = TetrisEnv(width=BOARD_W, height=BOARD_H, render_mode=render_mode)
+	env = TetrisEnv(width=BOARD_W, height=BOARD_H, render_mode=render_mode, seed=seed)
 	env.reset()
 	s = get_state(env)
 	state_dim = len(s)
@@ -365,11 +365,12 @@ def eval_greedy(model_path, num_episodes=10, render=False):
 		scores.append(info.get("score", 0))
 		lines_list.append(info.get("lines_cleared", 0))
 		print(f"Ep {ep:3d}: Score={scores[-1]:4d}, Lines={lines_list[-1]:4d}")
-
+	print(f"avg lines cleared: {np.mean(np.array(lines_list))}")
+	print(f"std lines cleared: {np.std(np.array(lines_list))}")
 	env.close()
 
 
 if __name__ == "__main__":
 	q_net = train_vector_dqn()
 	print("Evaluating model...")
-	eval_greedy(MODEL_PATH, num_episodes=10, render=False)
+	eval_greedy(MODEL_PATH, num_episodes=10, render=False, seed=0)
