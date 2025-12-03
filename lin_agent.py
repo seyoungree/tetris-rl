@@ -109,16 +109,19 @@ def choose_action(env: TetrisEnv):
 
 
 def run_episode(width=10, height=20, render=True, seed=None):
-	mode = "human" if render else "rgb_array"
+	mode = "human" if render else None
 	env = TetrisEnv(width=width, height=height, render_mode=mode, seed=seed)
 	obs, info = env.reset()
 	done = False
+	steps = 0
 
 	while not done:
 		act, val = choose_action(env)
 		obs, reward, terminated, truncated, info = env.step(act)
 		done = terminated or truncated
-
+		steps += 1
+		if env.game.lines_cleared > 500:
+			break
 		if render:
 			env.game.render()
 			time.sleep(0.03)
@@ -131,7 +134,7 @@ def run_episode(width=10, height=20, render=True, seed=None):
 if __name__ == "__main__":
 	lines_list = []
 	for i in range(10):
-		lines = run_episode(width=10, height=20, render=False, seed=0)
+		lines = run_episode(width=10, height=20, render=False, seed=42)
 		lines_list.append(lines)
 
 	print(f"avg lines cleared: {np.mean(np.array(lines_list))}")

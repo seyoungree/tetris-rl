@@ -14,7 +14,7 @@ BOARD_W, BOARD_H = 10, 20
 RUN_ID = time.strftime('%Y%m%d-%H%M%S')
 RUN_DIR = os.path.join("runs", f"vector_dqn_{BOARD_W}x{BOARD_H}_{RUN_ID}")
 MODEL_PATH = os.path.join(RUN_DIR, "dqn_final.pth")
-
+MODEL_PATH = "/Users/seyoungree/tetris-rl/runs/vector_dqn_10x20_20251203-090921/dqn_ep10000.pth"
 class ReplayBuffer:
 	"""
 	Prioritized Experience Replay buffer.
