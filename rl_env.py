@@ -6,11 +6,11 @@ from game_utils import *
 import time
 
 class TetrisEnv(gym.Env):
-    def __init__(self, width=10, height=20, render_mode="rgb_array"):
+    def __init__(self, width=10, height=20, render_mode="rgb_array", seed=None):
         super().__init__()
         self.width, self.height = width, height
         self.render_mode = render_mode
-        self.game = TetrisGame(width=width, height=height, render_mode=render_mode)
+        self.game = TetrisGame(width=width, height=height, render_mode=render_mode, seed=seed)
         self.game.reset()
         sample_obs = self.get_state()
         if self.render_mode is None:
@@ -43,9 +43,10 @@ class TetrisEnv(gym.Env):
 
         num_rotations = int((action // self.width) % 4)
         target_col = action % self.width
-        # prev_lines = self.game.lines_cleared
-        # prev_holes = count_holes(self.game.board)
-        # prev_bumpiness = get_bumpiness(self.game.board)
+        prev_lines = self.game.lines_cleared
+        prev_holes = count_holes(self.game.board)
+        prev_bumpiness = get_bumpiness(self.game.board)
+        prev_height = get_board_height(self.game.board)
 
         # rotations
         for _ in range(num_rotations):
@@ -70,13 +71,14 @@ class TetrisEnv(gym.Env):
         holes = count_holes(self.game.board)
         bumpiness = get_bumpiness(self.game.board)
 
-        reward = 0.1
-        reward += [0.0, 1.0, 3.0, 5.0, 8.0][lines_cleared]
-        # reward -= 0.01 * (holes - prev_holes)
-        # reward -= 0.005 * (bumpiness - prev_bumpiness)
-        # reward -= 0.01 * (height - prev_height)
+        reward = 0.0
+        reward += [0.0, 1.0, 4.0, 9.0, 16.0][lines_cleared]
+        if lines_cleared == 0:
+            reward -= 0.1 * (holes - prev_holes)
+            reward -= 0.08 * (bumpiness - prev_bumpiness)
+            reward -= 0.1 * (height - prev_height)
         if self.game.game_over:
-            reward -= 10.0
+            reward -= 5.0
         
         state = self.get_state()
         info = {"score": self.game.score, "lines_cleared": self.game.lines_cleared,
