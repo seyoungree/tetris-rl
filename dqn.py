@@ -6,293 +6,371 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+
 from rl_env import TetrisEnv
 from game_utils import *
 
-BOARD_W, BOARD_H = 5, 10
+BOARD_W, BOARD_H = 10, 20
 RUN_ID = time.strftime('%Y%m%d-%H%M%S')
-RUN_DIR = os.path.join("runs", f"dqn_tetris_{BOARD_W}x{BOARD_H}_{RUN_ID}")
+RUN_DIR = os.path.join("runs", f"vector_dqn_{BOARD_W}x{BOARD_H}_{RUN_ID}")
 MODEL_PATH = os.path.join(RUN_DIR, "dqn_final.pth")
-
+MODEL_PATH = "/Users/seyoungree/tetris-rl/runs/vector_dqn_10x20_20251203-090921/dqn_ep10000.pth"
 class ReplayBuffer:
-    def __init__(self, capacity):
-        self.capacity = capacity
-        self.buffer = []
-        self.pos = 0
+	"""
+	Prioritized Experience Replay buffer.
+	Stores transitions (s, a, r, s', done) and priorities for sampling.
+	"""
 
-    def push(self, s, a, r, s2, done):
-        if len(self.buffer) < self.capacity:
-            self.buffer.append(None)
-        self.buffer[self.pos] = (s, a, r, s2, done)
-        self.pos = (self.pos + 1) % self.capacity
+	def __init__(self, capacity, alpha=0.6):
+		self.capacity = capacity
+		self.alpha = alpha
 
-    def sample(self, batch_size):
-        return random.sample(self.buffer, batch_size)
+		self.buffer = [None] * capacity
+		self.priorities = np.zeros((capacity,), dtype=np.float32)
 
-    def __len__(self):
-        return len(self.buffer)
+		self.pos = 0
+		self.size = 0
+
+	def push(self, s, a, r, s2, done):
+		"""Add a new transition with max priority so it is likely to be sampled soon."""
+		max_prio = self.priorities.max() if self.size > 0 else 1.0
+
+		self.buffer[self.pos] = (s, a, r, s2, done)
+		self.priorities[self.pos] = max_prio
+
+		self.pos = (self.pos + 1) % self.capacity
+		self.size = min(self.size + 1, self.capacity)
+
+	def sample(self, batch_size, beta=0.4):
+		assert self.size > 0, "Cannot sample from an empty buffer"
+
+		prios = self.priorities[:self.size]
+		# avoid zero probabilities
+		prios = np.where(prios > 0, prios, 1e-6)
+
+		probs = prios ** self.alpha
+		probs /= probs.sum()
+
+		indices = np.random.choice(self.size, batch_size, p=probs)
+		samples = [self.buffer[idx] for idx in indices]
+
+		total = self.size
+		weights = (total * probs[indices]) ** (-beta)
+		weights /= weights.max()  # normalize for stability
+
+		return samples, indices, weights
+
+	def update_priorities(self, indices, new_priorities, max_priority=10.0):
+		"""Update priorities for a set of transitions."""
+		new_priorities = np.asarray(new_priorities, dtype=np.float32)
+		# small epsilon, clip to avoid exploding priorities
+		new_priorities = np.clip(new_priorities, 1e-6, max_priority)
+		for idx, prio in zip(indices, new_priorities):
+			self.priorities[idx] = prio
+
+	def __len__(self):
+		return self.size
 
 
-class DQN(nn.Module):
-    def __init__(self, board_height, board_width, n_actions, in_channels=2):
-        super().__init__()
+class VectorDQN(nn.Module):
+	def __init__(self, state_dim, n_actions):
+		super().__init__()
 
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_channels, 32, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(),
-        )
+		self.network = nn.Sequential(
+			nn.Linear(state_dim, 512),
+			nn.ReLU(),
+			nn.Linear(512, 256),
+			nn.ReLU(),
+			nn.Linear(256, n_actions),
+		)
 
-        with torch.no_grad():
-            dummy = torch.zeros(1, in_channels, board_height, board_width)
-            conv_out = self.conv(dummy).view(1, -1).size(1)
-
-        self.fc = nn.Sequential(
-            nn.Linear(conv_out, 256),
-            nn.ReLU(),
-            nn.Linear(256, n_actions),
-        )
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = x.view(x.size(0), -1)
-        return self.fc(x)
+	def forward(self, x):
+		return self.network(x)
 
 
 def get_state(env):
-    return env.game.get_state_matrix().astype(np.float32)
+	# Ensure get_state_vector returns a 1D float32 numpy array
+	s = env.game.get_state_vector()
+	return np.asarray(s, dtype=np.float32)
 
 
-def train_dqn(
-    num_episodes=50000,
-    buffer_capacity=50000,
-    batch_size=64,
-    gamma=0.99,
-    lr=1e-4,
-    start_learning=1000,
-    target_update_interval=1000,
-    epsilon_start=1.0,
-    epsilon_end=0.05,
-    epsilon_decay_steps=20000,
-    save_interval=5000,
+def train_vector_dqn(
+	num_episodes=100000,
+	buffer_capacity=70000,
+	batch_size=128,
+	gamma=0.99,
+	lr=2e-4,
+	start_learning=5000,
+	target_update_interval=1000,   # in number of gradient updates
+	epsilon_start=1.0,
+	epsilon_end=0.04,
+	epsilon_decay_steps=70000,     # in environment steps
+	save_interval=10000,
+	update_freq=1,                 # update every N steps
+	per_alpha=0.6,
+	per_beta_start=0.4,
+	per_beta_end=1.0,
+	per_beta_frames=200000,        # how many training updates until beta ~ 1.0
 ):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    env = TetrisEnv(width=BOARD_W, height=BOARD_H, render_mode=None)
-    env.reset()
-    s = get_state(env)
-    in_channels = s.shape[0]
-    n_actions = env.action_space.n
+	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    os.makedirs(RUN_DIR, exist_ok=True)
-    hparams = {
-        "board_w": BOARD_W,
-        "board_h": BOARD_H,
-        "num_episodes": num_episodes,
-        "buffer_capacity": buffer_capacity,
-        "batch_size": batch_size,
-        "gamma": gamma,
-        "lr": lr,
-        "start_learning": start_learning,
-        "target_update_interval": target_update_interval,
-        "epsilon_start": epsilon_start,
-        "epsilon_end": epsilon_end,
-        "epsilon_decay_steps": epsilon_decay_steps,
-        "save_interval": save_interval,
-        "device": str(device),
-        "in_channels": in_channels,
-    }
-    with open(os.path.join(RUN_DIR, "hparams.json"), "w") as f:
-        json.dump(hparams, f, indent=2)
+	env = TetrisEnv(width=BOARD_W, height=BOARD_H, render_mode=None)
+	env.reset()
+	s = get_state(env)
+	state_dim = len(s)
+	n_actions = env.action_space.n
 
-    print("Training DQN...")
-    q_net = DQN(BOARD_H, BOARD_W, n_actions, in_channels=in_channels).to(device)
-    target_net = DQN(BOARD_H, BOARD_W, n_actions, in_channels=in_channels).to(device)
-    target_net.load_state_dict(q_net.state_dict())
-    target_net.eval()
+	os.makedirs(RUN_DIR, exist_ok=True)
+	hparams = {
+		"board_w": BOARD_W,
+		"board_h": BOARD_H,
+		"state_dim": state_dim,
+		"num_episodes": num_episodes,
+		"buffer_capacity": buffer_capacity,
+		"batch_size": batch_size,
+		"gamma": gamma,
+		"lr": lr,
+		"start_learning": start_learning,
+		"target_update_interval": target_update_interval,
+		"epsilon_start": epsilon_start,
+		"epsilon_end": epsilon_end,
+		"epsilon_decay_steps": epsilon_decay_steps,
+		"save_interval": save_interval,
+		"update_freq": update_freq,
+		"device": str(device),
+		"per_alpha": per_alpha,
+		"per_beta_start": per_beta_start,
+		"per_beta_end": per_beta_end,
+		"per_beta_frames": per_beta_frames,
+	}
+	with open(os.path.join(RUN_DIR, "hparams.json"), "w") as f:
+		json.dump(hparams, f, indent=2)
 
-    optimizer = optim.Adam(q_net.parameters(), lr=lr)
-    replay = ReplayBuffer(buffer_capacity)
+	print("Training Vector DQN...")
+	print(f"State dim: {state_dim}, action dim: {n_actions}")
+	print(f"Using device: {device}")
 
-    epsilon = epsilon_start
-    step_count = 0
+	q_net = VectorDQN(state_dim, n_actions).to(device)
+	target_net = VectorDQN(state_dim, n_actions).to(device)
+	target_net.load_state_dict(q_net.state_dict())
+	target_net.eval()
 
-    episode_rewards = []
-    episode_scores = []
-    episode_lines = []
-    best_score = 0
+	optimizer = optim.AdamW(q_net.parameters(), lr=lr, weight_decay=1e-5)
+	replay = ReplayBuffer(buffer_capacity, alpha=per_alpha)
 
-    for ep in range(1, num_episodes + 1):
-        env.reset()
-        s = get_state(env)
-        done = False
+	epsilon = epsilon_start
+	step_count = 0          # environment steps
+	training_updates = 0    # gradient steps
 
-        ep_reward = 0.0
-        ep_losses = []
+	episode_rewards = []
+	episode_scores = []
+	episode_lines = []
+	best_score = 0
+	best_lines = 0
 
-        while not done:
-            step_count += 1
+	start_time = time.time()
 
-            if random.random() < epsilon:
-                a = random.randrange(n_actions)
-            else:
-                with torch.no_grad():
-                    t = torch.from_numpy(s).unsqueeze(0).to(device)
-                    q_vals = q_net(t)
-                    a = int(q_vals.argmax(1).item())
+	for ep in range(1, num_episodes + 1):
+		env.reset()
+		s = get_state(env)
+		done = False
 
-            _, reward, terminated, truncated, info = env.step(a)
-            done = terminated or truncated
+		ep_reward = 0.0
 
-            s2 = get_state(env)
-            ep_reward += reward
-            replay.push(s, a, reward, s2, float(done))
-            s = s2
+		while not done:
+			step_count += 1
 
-            frac = min(1.0, step_count / epsilon_decay_steps)
-            epsilon = epsilon_start + frac * (epsilon_end - epsilon_start)
+			# Epsilon-greedy policy
+			if random.random() < epsilon:
+				a = random.randrange(n_actions)
+			else:
+				with torch.no_grad():
+					t = torch.from_numpy(s).unsqueeze(0).to(device)
+					q_vals = q_net(t)
+					a = int(q_vals.argmax(1).item())
 
-            if len(replay) >= max(start_learning, batch_size):
-                batch = replay.sample(batch_size)
-                states, actions, rewards, next_states, dones = zip(*batch)
+			_, reward, terminated, truncated, info = env.step(a)
+			done = terminated or truncated
 
-                states = torch.from_numpy(np.stack(states)).to(device)
-                next_states = torch.from_numpy(np.stack(next_states)).to(device)
-                actions = torch.tensor(actions, dtype=torch.long, device=device)
-                rewards = torch.tensor(rewards, dtype=torch.float32, device=device)
-                dones = torch.tensor(dones, dtype=torch.float32, device=device)
+			s2 = get_state(env)
+			ep_reward += reward
+			replay.push(s, a, reward, s2, float(done))
+			s = s2
 
-                q_values = q_net(states)
-                q = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
+			# Linear epsilon decay over epsilon_decay_steps
+			if step_count < epsilon_decay_steps:
+				frac = step_count / float(epsilon_decay_steps)
+				epsilon = epsilon_start + frac * (epsilon_end - epsilon_start)
+			else:
+				epsilon = epsilon_end
 
-                with torch.no_grad():
-                    next_q = target_net(next_states).max(1)[0]
-                    target = rewards + gamma * next_q * (1.0 - dones)
+			# Train the network
+			if len(replay) >= max(start_learning, batch_size) and step_count % update_freq == 0:
+				training_updates += 1
 
-                loss = nn.SmoothL1Loss()(q, target)
+				# PER beta schedule (increase toward 1.0 over per_beta_frames updates)
+				beta_frac = min(1.0, training_updates / float(per_beta_frames))
+				beta = per_beta_start + beta_frac * (per_beta_end - per_beta_start)
 
-                optimizer.zero_grad()
-                loss.backward()
-                nn.utils.clip_grad_norm_(q_net.parameters(), 10.0)
-                optimizer.step()
+				batch, indices, weights = replay.sample(batch_size, beta)
 
-                ep_losses.append(loss.item())
+				states, actions, rewards, next_states, dones = zip(*batch)
 
-                if step_count % target_update_interval == 0:
-                    target_net.load_state_dict(q_net.state_dict())
+				states = torch.from_numpy(np.stack(states)).to(device)
+				next_states = torch.from_numpy(np.stack(next_states)).to(device)
+				actions = torch.tensor(actions, dtype=torch.long, device=device)
+				rewards = torch.tensor(rewards, dtype=torch.float32, device=device)
+				dones = torch.tensor(dones, dtype=torch.float32, device=device)
+				weights_t = torch.tensor(weights, dtype=torch.float32, device=device)
 
-        final_score = info.get("score", 0)
-        final_lines = info.get("lines_cleared", 0)
+				# Q(s,a)
+				q_values = q_net(states)
+				q = q_values.gather(1, actions.unsqueeze(1)).squeeze(1)
 
-        episode_rewards.append(ep_reward)
-        episode_scores.append(final_score)
-        episode_lines.append(final_lines)
-        best_score = max(best_score, final_score)
+				# Double DQN target
+				with torch.no_grad():
+					next_q_online = q_net(next_states)
+					next_actions = next_q_online.argmax(1)
 
-        if ep % 100 == 0:
-            recent = min(100, len(episode_rewards))
-            avg_r = np.mean(episode_rewards[-recent:])
-            avg_s = np.mean(episode_scores[-recent:])
-            avg_l = np.mean(episode_lines[-recent:])
-            avg_loss = np.mean(ep_losses) if ep_losses else 0.0
-            print(
-                f"Ep {ep:5d}/{num_episodes} | "
-                f"R: {avg_r:7.1f} | "
-                f"Score: {avg_s:6.1f} | "
-                f"Lines: {avg_l:4.2f} | "
-                f"Best: {best_score:6.1f} | "
-                f"ε: {epsilon:.3f} | "
-                f"Loss: {avg_loss:.3f} | "
-                f"Buf: {len(replay):5d}"
-            )
+					next_q_target = target_net(next_states)
+					next_q = next_q_target.gather(1, next_actions.unsqueeze(1)).squeeze(1)
 
-        if ep % save_interval == 0:
-            ckpt_path = os.path.join(RUN_DIR, f"dqn_ep{ep}.pth")
-            torch.save(
-                {
-                    "episode": ep,
-                    "model_state_dict": q_net.state_dict(),
-                    "optimizer_state_dict": optimizer.state_dict(),
-                    "epsilon": epsilon,
-                    "best_score": best_score,
-                },
-                ckpt_path,
-            )
-            print(f"Saved checkpoint: {ckpt_path}")
+					target = rewards + gamma * next_q * (1.0 - dones)
 
-    torch.save(
-        {
-            "episode": num_episodes,
-            "model_state_dict": q_net.state_dict(),
-            "best_score": best_score,
-        },
-        MODEL_PATH,
-    )
+				td_errors = (q - target).detach().cpu().numpy()
+				per_prios = np.abs(td_errors) + 1e-6
 
-    metrics_path = os.path.join(RUN_DIR, "metrics.npz")
-    np.savez(
-        metrics_path,
-        rewards=np.array(episode_rewards, dtype=np.float32),
-        scores=np.array(episode_scores, dtype=np.float32),
-        lines=np.array(episode_lines, dtype=np.float32),
-    )
+				# PER-weighted loss
+				loss_per_sample = nn.SmoothL1Loss(reduction='none')(q, target)
+				loss = (weights_t * loss_per_sample).mean()
 
-    print("Training completed.")
-    print(f"Final model saved to:   {MODEL_PATH}")
-    print(f"Metrics saved to:       {metrics_path}")
-    print(f"Hyperparams saved to:   {os.path.join(RUN_DIR, 'hparams.json')}")
-    env.close()
-    return q_net
+				optimizer.zero_grad()
+				loss.backward()
+				nn.utils.clip_grad_norm_(q_net.parameters(), 10.0)
+				optimizer.step()
+
+				# Update priorities
+				replay.update_priorities(indices, per_prios)
+
+				# Periodically update target network
+				if training_updates % target_update_interval == 0:
+					target_net.load_state_dict(q_net.state_dict())
+
+		# End of episode logging
+		final_score = info.get("score", 0)
+		final_lines = info.get("lines_cleared", 0)
+
+		episode_rewards.append(ep_reward)
+		episode_scores.append(final_score)
+		episode_lines.append(final_lines)
+		best_score = max(best_score, final_score)
+		best_lines = max(best_lines, final_lines)
+
+		if ep % 100 == 0:
+			recent = min(100, len(episode_rewards))
+			avg_r = np.mean(episode_rewards[-recent:])
+			avg_s = np.mean(episode_scores[-recent:])
+			avg_l = np.mean(episode_lines[-recent:])
+			elapsed = time.time() - start_time
+			eps_per_sec = ep / elapsed
+			eta_minutes = (num_episodes - ep) / max(eps_per_sec, 1e-6) / 60.0
+
+			print(
+				f"Ep {ep:6d}/{num_episodes} | "
+				f"Lines: {avg_l:6.2f} | "
+				f"Best: {best_lines:4d} | "
+				f"Reward: {avg_r:7.1f} | "
+				f"ε: {epsilon:.3f} | "
+				f"Updates: {training_updates:7d} | "
+				f"Speed: {eps_per_sec:5.2f} ep/s | "
+				f"ETA: {eta_minutes:4.0f}m"
+			)
+
+		if ep % save_interval == 0:
+			ckpt_path = os.path.join(RUN_DIR, f"dqn_ep{ep}.pth")
+			torch.save(
+				{
+					"episode": ep,
+					"model_state_dict": q_net.state_dict(),
+					"optimizer_state_dict": optimizer.state_dict(),
+					"epsilon": epsilon,
+					"best_score": best_score,
+					"best_lines": best_lines,
+				},
+				ckpt_path,
+			)
+			print(f"Checkpoint saved to: {ckpt_path}")
+
+	# Final save
+	torch.save(
+		{
+			"episode": num_episodes,
+			"model_state_dict": q_net.state_dict(),
+			"best_score": best_score,
+			"best_lines": best_lines,
+		},
+		MODEL_PATH,
+	)
+
+	metrics_path = os.path.join(RUN_DIR, "metrics.npz")
+	np.savez(
+		metrics_path,
+		rewards=np.array(episode_rewards, dtype=np.float32),
+		scores=np.array(episode_scores, dtype=np.float32),
+		lines=np.array(episode_lines, dtype=np.float32),
+	)
+	print(f"Model saved to: {MODEL_PATH}")
+	env.close()
+	return q_net
 
 
-def eval_greedy(model_path, num_episodes=5, render=True):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    render_mode = "human" if render else "rgb_array"
-    env = TetrisEnv(width=BOARD_W, height=BOARD_H, render_mode=render_mode)
-    env.reset()
-    s = get_state(env)
-    in_channels = s.shape[0]
-    n_actions = env.action_space.n
+def eval_greedy(model_path, num_episodes=10, render=False, seed=None):
+	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+	render_mode = "human" if render else "rgb_array"
+	env = TetrisEnv(width=BOARD_W, height=BOARD_H, render_mode=render_mode, seed=seed)
+	env.reset()
+	s = get_state(env)
+	state_dim = len(s)
+	n_actions = env.action_space.n
 
-    q_net = DQN(BOARD_H, BOARD_W, n_actions, in_channels=in_channels).to(device)
-    checkpoint = torch.load(model_path, map_location=device)
-    q_net.load_state_dict(checkpoint["model_state_dict"])
-    q_net.eval()
+	q_net = VectorDQN(state_dim, n_actions).to(device)
+	checkpoint = torch.load(model_path, map_location=device)
+	q_net.load_state_dict(checkpoint["model_state_dict"])
+	q_net.eval()
 
-    print(f"Loaded model from: {model_path}")
-    print(f"\nEvaluating for {num_episodes} episodes...\n")
+	print(f"Loaded model from: {model_path}")
+	print(f"\nEvaluating {num_episodes} episodes...\n")
 
-    scores = []
-    lines_list = []
- 
-    for ep in range(1, num_episodes + 1):
-        env.reset()
-        s = get_state(env)
-        done = False
+	scores = []
+	lines_list = []
 
-        while not done:
-            with torch.no_grad():
-                t = torch.from_numpy(s).unsqueeze(0).to(device)
-                a = int(q_net(t).argmax(1).item())
+	for ep in range(1, num_episodes + 1):
+		env.reset()
+		s = get_state(env)
+		done = False
 
-            _, _, terminated, truncated, info = env.step(a)
-            done = terminated or truncated
-            s = get_state(env)
+		while not done:
+			with torch.no_grad():
+				t = torch.from_numpy(s).unsqueeze(0).to(device)
+				a = int(q_net(t).argmax(1).item())
 
-            if render:
-                env.game.render()
-                time.sleep(0.05)
+			_, _, terminated, truncated, info = env.step(a)
+			done = terminated or truncated
+			s = get_state(env)
 
-        scores.append(info.get("score", 0))
-        lines_list.append(info.get("lines_cleared", 0))
-        print(f"Episode {ep}: Score={scores[-1]}, Lines={lines_list[-1]}")
+			if render:
+				env.game.render()
+				time.sleep(0.05)
 
-    env.close()
+		scores.append(info.get("score", 0))
+		lines_list.append(info.get("lines_cleared", 0))
+		print(f"Ep {ep:3d}: Score={scores[-1]:4d}, Lines={lines_list[-1]:4d}")
+	print(f"avg lines cleared: {np.mean(np.array(lines_list))}")
+	print(f"std lines cleared: {np.std(np.array(lines_list))}")
+	env.close()
 
 
 if __name__ == "__main__":
-    q_net = train_dqn()
-    print("Evaluating trained model...")
-    eval_greedy(MODEL_PATH, num_episodes=3, render=True)
+	q_net = train_vector_dqn()
+	print("Evaluating model...")
+	eval_greedy(MODEL_PATH, num_episodes=10, render=False, seed=0)
