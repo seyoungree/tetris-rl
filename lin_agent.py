@@ -108,34 +108,32 @@ def choose_action(env: TetrisEnv):
 	return best_action, best_score
 
 
-def run_episode(width=10, height=20, render=True, seed=None):
+
+def run_episodes(width=10, height=20, render=True, seed=None, num_episodes=10):
 	mode = "human" if render else None
 	env = TetrisEnv(width=width, height=height, render_mode=mode, seed=seed)
-	obs, info = env.reset()
-	done = False
-	steps = 0
+	results = []
 
-	while not done:
-		act, val = choose_action(env)
-		obs, reward, terminated, truncated, info = env.step(act)
-		done = terminated or truncated
-		steps += 1
-		if env.game.lines_cleared > 500:
-			break
-		if render:
-			env.game.render()
-			time.sleep(0.03)
+	for i in range(1,num_episodes+1):
+		obs, info = env.reset()
+		done = False
+
+		while not done:
+			act, _ = choose_action(env)
+			obs, reward, terminated, truncated, info = env.step(act)
+			done = terminated or truncated
+			
+			if render:
+				env.game.render()
+				time.sleep(0.03)
+		print(f"Finished: score={info['score']} lines={info['lines_cleared']}")
+		results.append(info['lines_cleared'])
 
 	env.close()
-	print(f"Episode finished: Score={info['score']}, Lines={info['lines_cleared']}")
-	return info['lines_cleared']
+	print("Mean:", np.mean(results))
+	print("Std:", np.std(results))
+
 	
 
 if __name__ == "__main__":
-	lines_list = []
-	for i in range(10):
-		lines = run_episode(width=10, height=20, render=False, seed=42)
-		lines_list.append(lines)
-
-	print(f"avg lines cleared: {np.mean(np.array(lines_list))}")
-	print(f"std lines cleared: {np.std(np.array(lines_list))}")
+	run_episodes(width=10, height=20, render=False, seed=1)
