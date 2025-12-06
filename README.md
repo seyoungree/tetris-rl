@@ -1,5 +1,5 @@
 # Tetris-RL
-*A Reinforcement Learning–ready Tetris environment with human-play mode and full UI.*
+*Playing Tetris with Reinforcement Learning for my class MIT 6.7920 Reinforcement Learning.*
 
 ![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
 ![Pygame](https://img.shields.io/badge/pygame-2.x-green.svg)
