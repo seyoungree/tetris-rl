@@ -4,6 +4,10 @@
 ![Python](https://img.shields.io/badge/python-3.10+-blue.svg)
 ![Pygame](https://img.shields.io/badge/pygame-2.x-green.svg)
 
+
+https://github.com/user-attachments/assets/65750e36-a238-4781-93fb-5090816c7d6a
+
+
 ## Setup
 
 ### Using Conda (Recommended)
@@ -26,3 +30,6 @@ Run:
 
 ```bash
 python game.py --play
+
+
+
