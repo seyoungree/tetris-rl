@@ -14,13 +14,8 @@ BOARD_W, BOARD_H = 10, 20
 RUN_ID = time.strftime('%Y%m%d-%H%M%S')
 RUN_DIR = os.path.join("runs", f"vector_dqn_{BOARD_W}x{BOARD_H}_{RUN_ID}")
 MODEL_PATH = os.path.join(RUN_DIR, "dqn_final.pth")
-MODEL_PATH = "/Users/seyoungree/tetris-rl/runs/vector_dqn_10x20_20251203-090921/dqn_ep10000.pth"
-class ReplayBuffer:
-	"""
-	Prioritized Experience Replay buffer.
-	Stores transitions (s, a, r, s', done) and priorities for sampling.
-	"""
 
+class ReplayBuffer:
 	def __init__(self, capacity, alpha=0.6):
 		self.capacity = capacity
 		self.alpha = alpha
@@ -32,7 +27,6 @@ class ReplayBuffer:
 		self.size = 0
 
 	def push(self, s, a, r, s2, done):
-		"""Add a new transition with max priority so it is likely to be sampled soon."""
 		max_prio = self.priorities.max() if self.size > 0 else 1.0
 
 		self.buffer[self.pos] = (s, a, r, s2, done)
@@ -45,7 +39,6 @@ class ReplayBuffer:
 		assert self.size > 0, "Cannot sample from an empty buffer"
 
 		prios = self.priorities[:self.size]
-		# avoid zero probabilities
 		prios = np.where(prios > 0, prios, 1e-6)
 
 		probs = prios ** self.alpha
@@ -61,7 +54,6 @@ class ReplayBuffer:
 		return samples, indices, weights
 
 	def update_priorities(self, indices, new_priorities, max_priority=10.0):
-		"""Update priorities for a set of transitions."""
 		new_priorities = np.asarray(new_priorities, dtype=np.float32)
 		# small epsilon, clip to avoid exploding priorities
 		new_priorities = np.clip(new_priorities, 1e-6, max_priority)
@@ -72,7 +64,7 @@ class ReplayBuffer:
 		return self.size
 
 
-class VectorDQN(nn.Module):
+class DQN(nn.Module):
 	def __init__(self, state_dim, n_actions):
 		super().__init__()
 
@@ -87,33 +79,29 @@ class VectorDQN(nn.Module):
 	def forward(self, x):
 		return self.network(x)
 
-
 def get_state(env):
-	# Ensure get_state_vector returns a 1D float32 numpy array
 	s = env.game.get_state_vector()
 	return np.asarray(s, dtype=np.float32)
 
-
 def train_vector_dqn(
-	num_episodes=100000,
-	buffer_capacity=70000,
+	num_episodes=50000,
+	buffer_capacity=30000,
 	batch_size=128,
-	gamma=0.99,
-	lr=2e-4,
+	gamma=0.95,
+	lr=1e-4,
 	start_learning=5000,
 	target_update_interval=1000,   # in number of gradient updates
 	epsilon_start=1.0,
-	epsilon_end=0.04,
-	epsilon_decay_steps=70000,     # in environment steps
-	save_interval=10000,
+	epsilon_end=0.01,
+	epsilon_decay_steps=100000,     # in environment steps
+	save_interval=5000,
 	update_freq=1,                 # update every N steps
 	per_alpha=0.6,
 	per_beta_start=0.4,
 	per_beta_end=1.0,
-	per_beta_frames=200000,        # how many training updates until beta ~ 1.0
+	per_beta_frames=200000,
 ):
 	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 	env = TetrisEnv(width=BOARD_W, height=BOARD_H, render_mode=None)
 	env.reset()
 	s = get_state(env)
@@ -150,8 +138,8 @@ def train_vector_dqn(
 	print(f"State dim: {state_dim}, action dim: {n_actions}")
 	print(f"Using device: {device}")
 
-	q_net = VectorDQN(state_dim, n_actions).to(device)
-	target_net = VectorDQN(state_dim, n_actions).to(device)
+	q_net = DQN(state_dim, n_actions).to(device)
+	target_net = DQN(state_dim, n_actions).to(device)
 	target_net.load_state_dict(q_net.state_dict())
 	target_net.eval()
 
@@ -159,8 +147,8 @@ def train_vector_dqn(
 	replay = ReplayBuffer(buffer_capacity, alpha=per_alpha)
 
 	epsilon = epsilon_start
-	step_count = 0          # environment steps
-	training_updates = 0    # gradient steps
+	step_count = 0
+	training_updates = 0
 
 	episode_rewards = []
 	episode_scores = []
@@ -273,18 +261,14 @@ def train_vector_dqn(
 			avg_l = np.mean(episode_lines[-recent:])
 			elapsed = time.time() - start_time
 			eps_per_sec = ep / elapsed
-			eta_minutes = (num_episodes - ep) / max(eps_per_sec, 1e-6) / 60.0
 
-			print(
-				f"Ep {ep:6d}/{num_episodes} | "
+			print(f"Ep {ep:6d}/{num_episodes} | "
 				f"Lines: {avg_l:6.2f} | "
 				f"Best: {best_lines:4d} | "
 				f"Reward: {avg_r:7.1f} | "
 				f"ε: {epsilon:.3f} | "
 				f"Updates: {training_updates:7d} | "
-				f"Speed: {eps_per_sec:5.2f} ep/s | "
-				f"ETA: {eta_minutes:4.0f}m"
-			)
+				f"Speed: {eps_per_sec:5.2f} ep/s")
 
 		if ep % save_interval == 0:
 			ckpt_path = os.path.join(RUN_DIR, f"dqn_ep{ep}.pth")
@@ -300,6 +284,14 @@ def train_vector_dqn(
 				ckpt_path,
 			)
 			print(f"Checkpoint saved to: {ckpt_path}")
+
+			metrics_path = os.path.join(RUN_DIR, "metrics.npz")
+			np.savez(
+				metrics_path,
+				rewards=np.array(episode_rewards, dtype=np.float32),
+				scores=np.array(episode_scores, dtype=np.float32),
+				lines=np.array(episode_lines, dtype=np.float32),
+			)
 
 	# Final save
 	torch.save(
@@ -333,7 +325,7 @@ def eval_greedy(model_path, num_episodes=10, render=False, seed=None):
 	state_dim = len(s)
 	n_actions = env.action_space.n
 
-	q_net = VectorDQN(state_dim, n_actions).to(device)
+	q_net = DQN(state_dim, n_actions).to(device)
 	checkpoint = torch.load(model_path, map_location=device)
 	q_net.load_state_dict(checkpoint["model_state_dict"])
 	q_net.eval()
@@ -368,7 +360,6 @@ def eval_greedy(model_path, num_episodes=10, render=False, seed=None):
 	print(f"avg lines cleared: {np.mean(np.array(lines_list))}")
 	print(f"std lines cleared: {np.std(np.array(lines_list))}")
 	env.close()
-
 
 if __name__ == "__main__":
 	q_net = train_vector_dqn()
